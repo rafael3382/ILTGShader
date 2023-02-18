@@ -1,0 +1,35 @@
+// <Sampler Name='u_samplerState' Texture='u_texture' />
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+
+uniform sampler2D u_texture;
+varying vec2 v_texcoord;
+
+uniform vec3 u_viewPosition;
+varying vec3 v_pos;
+
+void main()
+{
+    // Alpha threshold
+    if (texture2D(u_texture, v_texcoord).a <= 0.5)
+		discard;
+    
+	
+	
+    float dis=length(v_pos - u_viewPosition);
+    dis = floor(dis * 1.0);
+    float r = mod(floor(dis / 65536.0), 256.0);
+    float g = mod(floor(dis / 256.0), 256.0);
+    float b = mod(floor(dis), 256.0);
+    
+    vec4 result = vec4(r/256.0, g/256.0, b/256.0,1.0);
+
+
+	// On some devices using gl_FragColor in calculations causes a compile fail (Kindle Fire 1)
+	gl_FragColor = result;
+}
+
+

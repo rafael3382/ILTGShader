@@ -1,0 +1,183 @@
+#extension GL_OES_standard_derivatives : enable
+
+// <Sampler Name='u_samplerState' Texture='u_texture' />
+// <Sampler Name='u_shaderTexSampler' Texture='u_shaderTex' />
+// <Sampler Name='u_screenSampler' Texture='u_screen' />
+
+#ifdef GL_ES
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#define highp mediump
+#endif
+#endif
+
+
+uniform sampler2D u_screen;
+uniform vec2 u_screenSize;
+#define RESOLUTION u_screenSize
+#define SCREEN_UV (gl_FragCoord.xy / RESOLUTION)
+
+
+uniform sampler2D u_texture;
+uniform sampler2D u_shaderTex;
+
+
+uniform float u_isReflection;
+uniform vec3 u_fogColor;
+varying vec4 v_color;
+varying vec2 v_texcoord;
+varying float v_incidence;
+varying float v_fog;
+uniform float u_time;
+varying vec3 v_pos;
+varying vec3 viewPos;
+uniform vec3 u_viewDir;
+varying float wavelevel;
+#define color v_color
+
+float opst = 1.0/16.0;
+
+vec2 repeat(vec2 uv, float chunk)
+{
+	return uv - (floor(uv / chunk) * chunk);
+}
+
+bool in_range(vec2 pos, vec2 start, vec2 stop)
+{
+    return (pos.x >= start.x && pos.y >= start.y) && (pos.x < stop.x && pos.y < stop.y);
+}
+
+
+
+
+vec2 invert_y(vec2 b, float base) 
+{
+	vec2 o = b;
+	o.y = base - o.y;
+	return o;
+}
+vec2 invert_y(float inv, vec2 b, float base)
+{
+	vec2 o = b;
+	if (inv < 0.5) return vec2(o.x, o.y + (base / 3.5));
+	o.y = base - o.y;
+	return o;
+}
+
+
+
+
+
+vec3 WorldPos2ScreenPos(vec4 worldPos)
+{
+    worldPos.xyz /= worldPos.w;        
+    worldPos.xyz = worldPos.xyz*0.5 + 0.5; 
+    return worldPos.xyz;
+}
+
+vec3 invert_y(vec3 b, float base)
+{
+	vec3 o = b;
+	o.y = base - o.y;
+	return o;
+}
+
+vec2 get_block(vec2 block_uv)
+{
+    return floor(block_uv / opst);
+}
+
+vec3 aces(vec3 x)
+{
+  const float a = 2.51;
+  const float b = 0.03;
+  const float c = 2.43;
+  const float d = 0.59;
+  const float e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+
+
+uniform mat4 u_projectionMatrix;
+uniform mat4 u_viewMatrix;
+uniform vec3 u_viewPosition;
+uniform vec2 u_fogStartInvLength;
+
+// From SF Shader, But very optimized
+vec4 GetReflectionColor(vec3 position, vec2 adjust)
+{
+    if (u_viewDir.y < -0.6) return vec4(0.0);
+    
+    vec3 direction = reflect(viewPos, normalize(cross(dFdx(viewPos),dFdy(viewPos))));
+    vec3 positionInScreenCoord = WorldPos2ScreenPos(u_projectionMatrix * vec4(direction, 1.0));
+    if (positionInScreenCoord.y>1.0 || positionInScreenCoord.x > 1.0 || positionInScreenCoord.x < 0.0 || (u_viewDir.y < 0.0 && positionInScreenCoord.y < 0.2)) return vec4(0.0);
+    
+   vec4 col = texture2D(u_screen, invert_y(positionInScreenCoord.xy, 1.0) + adjust);
+   return col;
+}
+float rand(vec2 co){
+    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+float remainder(float x, float a)
+{
+	if (a == 0.0) {return 0.0;}
+	return (x - (floor(x/a)*a));
+}
+
+void main()
+{
+	// Color
+	vec4 result = v_color;
+	
+    
+    float LightAmount = max(v_color.x, max(v_color.y, v_color.z));
+    
+#ifdef cfg_WaterTexture
+   vec3 waterTex = texture2D(u_shaderTex, fract((v_pos.xz/16.0)-vec2(0.0, u_time * 30.0))).rgb;
+    result.rgb += waterTex * 2.0 * mix(v_color.rgb, vec3(LightAmount), 0.6);
+    result.rgb = aces(result.rgb) * 1.2;
+    result.rgb += clamp(waterTex, 0.4, 1.0)-0.4;
+    result.rgb *= LightAmount;
+
+    // Apply Alpha
+    result.a += 0.0*texture2D(u_texture, v_texcoord).a;
+#else
+   vec3 waterTex = texture2D(u_texture, v_texcoord).rgb;
+   result.rgb *= waterTex;
+   waterTex.rg = vec2(waterTex.b);
+#endif
+
+    // Add Reflections
+    if (v_color.a != 0.85) 
+    {
+#ifdef cfg_WaterReflections
+        vec4 ReflectionColor = GetReflectionColor(normalize(viewPos), vec2(tan(wavelevel) * 0.1 + (waterTex.b * 0.0025)));
+        
+        if (ReflectionColor.a > 0.0)
+        {
+    #ifdef cfg_WaterTexture
+            result.rgb = mix(waterTex.rgb, vec3(1.0), 0.3*ReflectionColor.a) * ReflectionColor.rgb;
+    #else
+            result.rgb = ReflectionColor.rgb * waterTex;
+    #endif
+        }
+#endif
+    }
+    
+    // Fog
+    vec4 premultipliedFogColor = vec4(u_fogColor * result.a, result.a);
+    result = mix(result, premultipliedFogColor, v_fog);
+    
+#ifdef cfg_WaterRefraction
+    vec3 prev = texture2D(u_screen, (gl_FragCoord.xy)/u_screenSize + vec2(wavelevel * 0.07)).rgb;
+    float prevalpha = 0.3;
+    result.rgb = mix(prev, result.rgb, prevalpha);        
+#endif
+    
+    // Return
+    gl_FragColor = result;
+}

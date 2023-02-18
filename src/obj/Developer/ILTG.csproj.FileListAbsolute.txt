@@ -1,0 +1,7 @@
+/sdcard/SurvivalCraft2.3/_MyMods/ILTGShader-Reborn/src/obj/Developer/ILTG.csproj.AssemblyReference.cache
+/sdcard/SurvivalCraft2.3/_MyMods/ILTGShader-Reborn/src/obj/Developer/ILTG.csproj.CoreCompileInputs.cache
+/sdcard/SurvivalCraft2.3/_MyMods/ILTGShader-Reborn/CompileFiles/bin/Developer/ILTG.dll
+/sdcard/SurvivalCraft2.3/_MyMods/ILTGShader-Reborn/CompileFiles/bin/Developer/ILTG.pdb
+/sdcard/SurvivalCraft2.3/_MyMods/ILTGShader-Reborn/src/obj/Developer/ILTG.csproj.CopyComplete
+/sdcard/SurvivalCraft2.3/_MyMods/ILTGShader-Reborn/src/obj/Developer/ILTG.dll
+/sdcard/SurvivalCraft2.3/_MyMods/ILTGShader-Reborn/src/obj/Developer/ILTG.pdb

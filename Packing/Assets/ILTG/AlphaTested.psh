@@ -1,0 +1,585 @@
+
+#extension GL_OES_standard_derivatives : enable
+
+
+
+#ifdef GLSL
+#define ALPHATESTED
+
+// <Sampler Name='u_samplerState' Texture='u_texture' />
+// <Sampler Name='u_worldTopSampler' Texture='u_worldTopMap' />
+
+
+
+#ifdef GL_ES
+precision mediump float;
+precision lowp  int;
+#endif
+
+
+
+
+
+
+
+// Tone mapping by Technical GD
+const float opst = (1.0/16.0);
+
+uniform sampler2D u_texture;
+
+
+
+
+uniform lowp vec2 u_screenSize;
+
+uniform lowp vec3 u_fogColor;
+uniform highp float u_time;
+uniform lowp float u_waterDepth;
+uniform mediump float u_lightningStrikeBrightness;
+uniform lowp vec3 u_viewPosition;
+uniform lowp float u_fogYMultiplier;
+uniform mediump vec3 u_viewDir;
+
+/*
+uniform vec3 Leds[16];
+uniform vec3 LedColors[16];
+*/
+
+
+
+
+#define RESOLUTION u_screenSize
+#define SCREEN_UV (gl_FragCoord.xy / RESOLUTION)
+
+
+
+
+
+varying lowp vec4 v_color;
+varying mediump vec2 v_texcoord;
+varying lowp float v_fog;
+varying highp vec3 v_pos;
+varying highp vec3 v_screenpos;
+
+
+
+
+
+
+
+
+lowp float CalculateLightIntensity(float timeOfDay)
+		{
+			if (timeOfDay <= 0.2 || timeOfDay > 0.8)
+			{
+				return 0.1;
+			}
+			if (timeOfDay > 0.2 && timeOfDay <= 0.3)
+			{
+				return (timeOfDay - 0.2) / 0.100000009;
+			}
+			if (timeOfDay > 0.3 && timeOfDay <= 0.7)
+			{
+				return 1.0;
+			}
+			return 1.0 - (timeOfDay - 0.7) / 0.100000024;
+}
+
+
+
+mediump vec2 GetCoord(int x, int y) {
+   float base = 16.0;
+   float b = 1.0/base;
+   float rx = float(x)-1.0;
+   float ry = float(y)-1.0;
+   
+   return vec2(rx*b, (ry*b));
+}
+
+#define TorchColor vec3(1.3, 0.65, 0.0) * 1.5
+#define RainColor vec3(0.4, 0.6, 1.25)
+#define DuskColor vec3(0.7, 0.5, 0.1) * 2.0
+#define DawnColor vec3(1.0, 0.7, 0.4) * 2.0
+
+#define IS_DAWN u_time >= 0.25 && u_time < 0.3
+#define IS_DUSK u_time >= 0.75 && u_time < 0.8
+
+
+
+bool great_than(vec2 a, vec2 b) {
+return a.x >= b.x && a.y >= b.y;
+}
+bool less_than(vec2 a, vec2 b) {
+return a.x <= b.x && a.y <= b.y;
+}
+
+vec2 invert_y(vec2 b, float base) {
+	vec2 o = b;
+	o.y = base - o.y;
+	return o;
+}
+vec2 repeat(vec2 uv, float chunk) {
+	return uv - (floor(uv / chunk) * chunk);
+}
+
+lowp int get_block(vec2 block_uv) {
+
+vec2 texcoord =  floor(block_uv / opst);
+return int(texcoord.x + (texcoord.y*16.0));
+}
+
+
+
+
+// Weird things
+// #define SHOW_TEXTURE
+//#define DEBUG_HEIGHTMAP
+// #define DEBUG_BLOCKS
+// End of Weird things
+
+
+
+
+
+
+// #define PLAYER_SHADOW
+//#define TONE_MAPPING
+//#define VERTICAL_SHADOW
+
+
+
+
+// #define EfectTesting
+// #define BeforeAfter
+
+
+
+
+#define CUBE_RIGHT 0
+#define CUBE_LEFT 1
+
+#define CUBE_DOWN 2
+#define CUBE_UP 3
+
+#define CUBE_FRONT 4
+#define CUBE_BACK 5
+
+#define INVALID_CUBE -1
+
+
+int get_cube_face_by_texture(vec2 uv) {
+	int block_uv = get_block(uv);
+	if (block_uv  == 0) return CUBE_UP;
+    return INVALID_CUBE;
+}
+
+
+ int get_cube_face(vec3 normal) {
+   
+  if (dot(normal, vec3(0.0, 1.0, 0.0)) < 0.0) { // Down
+    return CUBE_DOWN;
+  }
+  if (dot(normal, vec3(0.0, -1.0, 0.0)) < 0.0) { // Up
+    return CUBE_UP;
+  }
+  
+
+  if (dot(normal, vec3(1.0, 0.0, 0.0)) < 0.0) { // Left
+    return CUBE_LEFT;
+  }
+  if (dot(normal, vec3(-1.0, 0.0, 0.0)) < 0.0) { // Right
+    return CUBE_RIGHT;
+  }
+
+  if (dot(normal, vec3(0.0, 0.0, -1.0)) < 0.0) { // Front
+    return CUBE_FRONT;
+  }
+  if (dot(normal, vec3(0.0, -1.0, 1.0)) < 0.0) { // Back
+    return CUBE_BACK;
+  }
+  return INVALID_CUBE;
+}
+
+
+
+#define CUBE_NORMAL_RIGHT vec3(1.0, 0.0, 0.0)
+#define CUBE_NORMAL_LEFT vec3(-1.0, 0.0, 0.0)
+
+#define CUBE_NORMAL_DOWN vec3(0.0, 1.0, 0.0)
+#define CUBE_NORMAL_UP vec3(0.0, -1.0, 0.0)
+
+#define CUBE_NORMAL_FRONT vec3(0.0, 0.0, 1.0)
+#define CUBE_NORMAL_BACK vec3(0.0, 0.0, -1.0)
+
+#define INVALID_CUBE_NORMAL vec3(1.0, 0.2, 0.1)
+
+ lowp vec3 Oldget_cube_normal_face() {
+	
+  int facebytexture = get_cube_face_by_texture(v_texcoord);
+  if (facebytexture != INVALID_CUBE) {
+  	if (facebytexture == CUBE_UP) return CUBE_NORMAL_UP;
+  }
+vec3 result_normal = vec3(0.0);
+  float normalcount = 0.;
+  
+  vec3 fract_pos = fract(v_pos);
+  if (fract_pos.z == 0.0 && u_viewPosition.z - v_pos.z > 0.0) { // Back
+    result_normal += CUBE_NORMAL_BACK; normalcount += 1.0;
+  }
+  
+  if (fract_pos.x == 0.0 && u_viewPosition.x - v_pos.x < 0.0) { // Right
+    result_normal += CUBE_NORMAL_RIGHT; normalcount += 1.0;
+  }
+  if (fract_pos.x == 0.0 && u_viewPosition.x - v_pos.x > 0.0) { // Left
+    result_normal += CUBE_NORMAL_LEFT; normalcount += 1.0;
+  }
+
+  if (fract_pos.y == 0.0 && u_viewPosition.y - v_pos.y < 0.0) { // Down
+    result_normal += CUBE_NORMAL_DOWN; normalcount += 1.0;
+  }
+  if (fract_pos.y == 0.0 && u_viewPosition.y - v_pos.y > 0.0) { // Up
+    result_normal += CUBE_NORMAL_UP; normalcount += 1.0;
+  }
+
+  if (fract_pos.z == 0.0 && u_viewPosition.z - v_pos.z < 0.0) { // Front
+    result_normal += CUBE_NORMAL_FRONT; normalcount += 1.0;
+  }
+  if (result_normal != vec3(0.0)) return result_normal / normalcount;
+  
+  
+  
+  
+  
+  return INVALID_CUBE_NORMAL;
+}
+
+ vec3 get_cube_normal_face() {
+    vec2 texcoord = repeat(v_texcoord, opst); 
+  
+    if (texcoord.x != 0.0 && texcoord.x != 1.0 && texcoord.y != 0.0 && texcoord.y != 1.0)
+    { 
+         vec3 normal = Oldget_cube_normal_face();
+         if (normal != INVALID_CUBE_NORMAL) { return normal; }
+   }
+   
+  
+  
+  return normalize(cross(dFdx(v_screenpos),dFdy(v_screenpos)));
+      
+  
+}
+
+float remainder(float x, float a) {
+	if (a == 0.0) {return 0.0;}
+	return (x - (floor(x/a)*a));
+}
+
+
+mediump vec2 EGetCoord(int x, int y) {
+  float base = 16.0;
+  float b = 1.0 / base;
+  float rx = float(x);
+  float ry = float(y);
+
+  return vec2(rx * b, (ry * b));
+}
+
+
+
+#ifdef VERTICAL_SHADOW
+lowp vec3 GetBlock(float x, float z)
+{
+    
+    return texture2D(u_worldTopMap, vec2(
+        ( remainder(floor(x), 16.0))/16.0,
+        (remainder(floor(z), 16.0))/16.0
+    )).rgb * 255.0;
+}
+
+
+ float rand( vec2 X){ 
+	return fract(cos(X.x + X.y *252.0) * 75.0);}
+	
+ float noise( vec2 X){ 
+    vec2 A = floor(X); 
+    vec2 B = fract(X); 
+    vec2 C = smoothstep(vec2(0.0),vec2(1.0),B);
+    float D = rand(A+vec2(0.0,0.0));
+    float E = rand(A+vec2(1.0,0.0));
+    float F = rand(A+vec2(0.0,1.0));
+    float G = rand(A+vec2(1.0,1.0));
+    float X1 = mix( mix(D, E, C.x),mix(F, G, C.x),C.y);
+	return X1;}
+	
+
+highp float WH( vec2 PS){
+highp float TIME =u_time*800.0;
+PS*=0.6;
+highp vec2 Wp = vec2(PS.x*2.0+PS.y,PS.y*2.0+PS.x)*0.5;
+highp float OP=1.0;
+OP = pow(noise(Wp*5.0+vec2(TIME*2.0)),2.0);
+//OP = perlin_n(Wp*5.0+vec2(TIME*2.0));
+OP*=0.005;
+highp float OP1=noise(Wp*0.7-vec2(TIME*1.2))*1.5;
+OP1=1.0-abs(OP1-0.7)*2.0;
+highp float OP2=noise(Wp*1.2+vec2(TIME));
+OP2=1.0-abs(OP2-0.7)*2.0;
+OP+=(OP1+OP2)*0.015;
+
+
+return OP;
+}
+#endif
+
+lowp vec3 aces(vec3 x)
+{
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+}
+#define DAWN vec2(0.25, 0.3)
+#define NOON vec2(0.3, 0.75)
+#define DUSK vec2(0.75, 0.8)
+#define NIGHT vec2(0.8, 0.25)
+
+float TimeCondition(vec2 TimeRange)
+{
+    
+    if (u_time > TimeRange.x && u_time < TimeRange.y)
+    {
+        
+        return (u_time - TimeRange.x)/(TimeRange.y - TimeRange.x);
+        
+        
+        
+        
+        
+        
+ }
+ return 0.0;
+}
+
+vec3 GenerateTextureNormal(vec3 normal, vec3 tex, float ChaosLevel)
+{
+    
+    vec3 crazy_tex = cross(tex.rgb, tex.bgr) * cross(tex.gbr, tex.brg);
+    
+    vec3 texnormal = vec3(sin(crazy_tex.x*ChaosLevel), cos(crazy_tex.y*ChaosLevel), sin(crazy_tex.z*ChaosLevel));
+    
+    
+    return cross(normal, texnormal);
+}
+
+
+uniform  mat4 u_viewProjectionMatrix;
+
+vec3 rgb2hsv(vec3 c)
+{
+    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-10;
+    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+vec3 hsv2rgb(vec3 c)
+{
+    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+
+
+void main()
+{
+    
+   if(v_fog >= 1.0) discard;
+    
+    
+    
+    
+    
+    
+    // Normal
+    lowp vec3 normal = get_cube_normal_face();
+    normal = -normal;
+    lowp int cubeface = get_cube_face(normal);
+    
+    
+    lowp float angle = (2.0 * u_time * 3.1415)+3.1415;
+	lowp vec3 RealLightPos = vec3(sin(angle), cos(angle), 0.0);
+	angle -= (v_pos.y/255.0) * 3.1415;
+   
+    lowp vec3 LightPos = vec3(sin(angle), cos(angle), 0.0);
+    vec3 sunposition = LightPos;
+    
+    
+    
+    
+    
+    
+    
+    vec4 texColor = texture2D(u_texture, v_texcoord);
+    
+    lowp vec4 result = texColor;
+     #ifdef ALPHATESTED
+      if (result.a < 0.5) {
+        discard;
+      }
+      #endif
+    result *= v_color;
+    
+    lowp int block_texcoord = get_block(v_texcoord);
+    
+    
+    
+    
+    int DarkArea = 0;
+    
+    
+    mediump float LightAmount = max(v_color.x, max(v_color.y, v_color.z));
+    lowp float SkyLight = CalculateLightIntensity(u_time);
+    
+    
+	
+	
+	
+	
+	
+	
+	if (block_texcoord == 180 || block_texcoord == 65 || block_texcoord == 7) result.rgb *= 0.65;
+    
+    if (block_texcoord == 18 || block_texcoord == 35 || block_texcoord == 176) {
+    	result.rgb *= 0.85;
+        
+        }
+	
+	
+	result.rgb *= vec3(1.08, 1.004, 1.0);
+	
+	
+    
+    
+    
+   lowp vec3 LightColor = vec3(1.0);
+    // Sunset(Dusk) Orange color
+	if (IS_DUSK && LightAmount > 0.1)
+        LightColor = DuskColor * 3.8;
+        
+    // Dawn Orange Color
+    if (IS_DAWN && LightAmount > 0.1)
+        LightColor = DawnColor * 3.8;
+    
+    
+
+
+	
+    
+    
+    
+    
+    
+    // torchlight
+    if ((LightAmount > SkyLight && LightAmount - SkyLight > 0.235)) {
+
+      if ((!(u_fogYMultiplier == 1.0)) && !(IS_DAWN)) {
+       result.rgb *= 1.8;
+
+      }
+      if (!((block_texcoord >= 124 && block_texcoord <= 126) || (block_texcoord >= 140 && block_texcoord <= 142) || (block_texcoord >= 156 && block_texcoord <= 158)) ) { // Check if is not lava
+          result.rgb *= TorchColor;
+          
+    
+
+      } else {
+        result.rgb *= 1.4;
+        result.r *= 1.1;
+      }
+      
+
+      #ifdef ALPHATESTED
+      if (result.a < 0.5) {
+        if (block_texcoord != 67) {
+          discard;
+        }
+        result.rgb = vec3(0.3) * v_color.rgb;
+        result.a = 8.0 / 255.0;
+      }
+      #endif
+
+    } else {
+   
+      if (u_fogYMultiplier > 0.5) {
+        
+       /*  vec3 OldPixelColor = texture2D(u_screen, AdjustReflectionCoord(SCREEN_UV, textureColor.rb+textureColor.g, cubeface, mix(13.45, 71.27, float(block_texcoord-180)/2.0))).rgb;
+	if (OldPixelColor != vec3(0.0) && cubeface == CUBE_UP)
+    {
+    result.rgb = mix(result.rgb, OldPixelColor, mix(0.0, 0.58, u_fogYMultiplier));
+	
+	}*/
+        result = mix(result, mix(result, vec4(u_fogColor, 1), 0.15), u_fogYMultiplier);
+
+      }
+
+    }
+    
+	
+	
+	if ((!(LightAmount > SkyLight && LightAmount - SkyLight > 0.235))) {
+      // Diffuse
+       result.rgb *= 0.7 + clamp(dot(LightPos, normal), 0.0, 0.3) * LightColor;
+       
+    }
+	
+	
+	
+	
+	//if (CUBE_RIGHT == cubeface) { LightAmount *= 1.5;  result.rgb *= 1.5; }
+	
+	
+   
+   
+   
+   if (u_time < 0.8 && u_time > 0.25)
+    {
+      result *= 1.575337;      
+    }
+	
+	
+	if (block_texcoord == 40) result.rgb *= 0.735;
+
+	
+   
+
+	
+    
+	// Return
+    
+    
+    
+    // Fog
+	result = mix(result, vec4(u_fogColor, 1), v_fog);
+	
+	
+	
+	//result.rgb = vec3(distance(v_pos-u_viewPosition, LightPos*vec3(32.0)))/32.0;
+	
+   vec2 size = u_screenSize + u_viewDir.xy;
+   
+   
+   result.rgb = result.rgb * 1.0+(u_lightningStrikeBrightness*0.5);
+   
+   
+   
+    gl_FragColor = result;
+    
+	
+}
+
+#endif

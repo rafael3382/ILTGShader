@@ -1,0 +1,222 @@
+#ifdef GLSL
+
+// <Sampler Name='u_samplerState' Texture='u_texture' />
+//// <Sampler Name='u_lightState' Texture='u_light' />
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+#ifdef USE_TEXTURE
+uniform sampler2D u_texture;
+//uniform sampler2D u_light;
+#endif
+#ifdef USE_ALPHATHRESHOLD
+uniform float u_alphaThreshold;
+#endif
+
+#ifdef USE_TEXTURE
+varying vec2 v_texcoord;
+#endif
+varying vec4 v_color;
+
+uniform vec3 u_viewDir;
+bool isReflective(float a)
+{
+    int t = int(a*255.0);
+    if (t == 15 || t == 24 || t == 180 || t == 182 || t == 48 || t == 7 || t == 65) return true;
+    return false;
+    
+}
+vec2 AdjustReflectionCoord(vec2 texcoord, vec2 distort, float GrainRandomChaos) {
+vec2 resultcoord = texcoord;
+
+
+
+
+
+
+resultcoord.y += (u_viewDir.y*1.25);
+
+
+
+
+
+
+
+//resultcoord.y -= (u_viewPosition.y-v_pos.y)*0.08;
+//resultcoord.y += 0.;
+
+//resultcoord.y += mix(0.0, 0.5, clamp(distance(u_viewPosition.xz, v_pos.xz)*0.05, 0.0, 1.0));
+
+resultcoord += sin((distort/1.5)*GrainRandomChaos)*0.015;
+
+
+if (resultcoord.x > 1.0 || resultcoord.y > 1.0 ||  resultcoord.x < 0.0 || resultcoord.y < 0.0) return v_texcoord;
+
+return resultcoord;
+
+}
+vec2 invert_y(vec2 uv)
+{
+    vec2 nuv = uv.xy;
+    nuv.y = 1.0-nuv.y;
+    return nuv;
+}
+vec2 invert_y(float base, vec2 uv)
+{
+    vec2 nuv = uv.xy;
+    nuv.y = base-nuv.y;
+    return nuv;
+}
+
+vec3 godrays(
+    float density,
+    float weight,
+    float decay,
+    float exposure,
+    int numSamples,
+    sampler2D occlusionTexture,
+    vec2 screenSpaceLightPos,
+    vec2 uv
+    ) {
+
+    vec3 fragColor = vec3(0.0,0.0,0.0);
+
+	vec2 deltaTextCoord = vec2( uv - screenSpaceLightPos.xy );
+
+	vec2 textCoo = uv.xy ;
+	deltaTextCoord *= (1.0 /  float(numSamples)) * density;
+	float illuminationDecay = 1.0;
+
+
+	for(int i=0; i < numSamples ; i++){
+
+
+   
+
+		textCoo -= deltaTextCoord;
+		vec4 scr = texture2D(occlusionTexture, textCoo);
+        vec3 samp;
+        if (scr.a == 1.0 && scr.b > 0.2) {
+		    float dist = distance(textCoo, screenSpaceLightPos.xy);
+		    if (dist < 0.25) {
+			dist = 0.25-dist;
+		    samp = vec3(dist/0.25);
+		    }
+		}
+		samp *= illuminationDecay * weight;
+		fragColor += samp;
+		illuminationDecay *= decay;
+		
+		if (textCoo.x > 1.0 || textCoo.y > 1.0 ||  textCoo.x < 0.0 || textCoo.y < 0.0) break;
+	}
+
+	fragColor *= exposure;
+
+    return fragColor;
+
+
+}
+
+//uniform float u_time;
+
+
+
+lowp vec3 aces(vec3 x)
+{
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+}
+
+void main()
+{
+	// Color
+	vec4 result = v_color;
+   
+   
+	// Texture
+#ifdef USE_TEXTURE
+	result *= texture2D(u_texture, v_texcoord);
+	
+#endif
+
+	// Alpha threshold
+#ifdef USE_ALPHATHRESHOLD
+	if (result.a <= u_alphaThreshold)
+		discard;
+#endif
+     int block_texcoord = int(result.a * 255.0);
+     
+     float LightAmount = max(result.r, max(result.g, result.b));
+	
+	if ((block_texcoord == 15 || block_texcoord == 24)) {
+    lowp vec3 OldPixelColor = texture2D(u_texture, AdjustReflectionCoord(invert_y(v_texcoord), result.rg, 7.6)).rgb;
+    if (OldPixelColor != vec3(0.0)) {
+        result.rgb = mix(result.rgb, OldPixelColor, 0.15);
+
+    }
+}
+if (block_texcoord == 180 || block_texcoord == 182) {
+    lowp vec3 OldPixelColor = texture2D(u_texture, AdjustReflectionCoord(invert_y(v_texcoord), result.rg + result.b, mix(13.45, 68.2725, float(block_texcoord - 180) / 2.0))).rgb;
+    if (OldPixelColor != vec3(0.0)) {
+        result.rgb = mix(result.rgb, OldPixelColor, 0.45);
+
+    }
+}
+if (block_texcoord == 48) {
+    if (result.b > result.r) {
+        lowp vec3 OldPixelColor = texture2D(u_texture, AdjustReflectionCoord(invert_y(v_texcoord), result.rg + result.b, 71.27)).rgb;
+        if (OldPixelColor != vec3(0.0)) {
+            result.rgb = mix(result.rgb, OldPixelColor, 0.45);
+
+        }
+        
+    }
+}
+if (block_texcoord == 7) {
+
+    lowp vec3 OldPixelColor = texture2D(u_texture, AdjustReflectionCoord(invert_y(v_texcoord), result.rg, 3.15)).rgb;
+    if (OldPixelColor != vec3(0.0)) {
+        result.rgb = mix(result.rgb, OldPixelColor, 0.1);
+
+    }
+
+}
+if (block_texcoord == 65) {
+
+    
+    lowp vec3 OldPixelColor = texture2D(u_texture, AdjustReflectionCoord(invert_y(v_texcoord), result.rg, 163.725)).rgb;
+    if (OldPixelColor != vec3(0.0)) {
+        result.rgb = mix(result.rgb, OldPixelColor, 0.2);
+
+    }
+    
+
+}
+    /*
+    mediump float timeOfDayPi = 2.0 * u_time * 3.1415;
+    mediump  float angle = timeOfDayPi + 3.1415;
+    mediump vec3 LightPos = vec3(sin(angle), cos(angle), 0.0);
+    
+    
+    
+    
+    #define DuskColor vec3(0.7, 0.5, 0.1) * 12.0
+    vec3 godrays_result = godrays(10.0, 0.01, 1.0, 1.5, 100, u_texture, vec2(0.5), v_texcoord);
+   result.rgb = mix(result.rgb, aces(DuskColor * result.rgb), clamp(godrays_result.g*1.5, 0.0, 1.0));
+    //result.rgb *= godrays_result;
+    
+    */
+    
+    
+    
+	// On some devices using gl_FragColor in calculations causes a compile fail (Kindle Fire 1)
+	gl_FragColor = result;
+}
+
+#endif

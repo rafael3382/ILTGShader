@@ -1,0 +1,88 @@
+#ifdef GLSL
+
+// <Sampler Name='u_samplerState' Texture='u_texture' />
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+#ifdef USE_TEXTURE
+uniform sampler2D u_texture;
+#endif
+#ifdef USE_ALPHATHRESHOLD
+uniform float u_alphaThreshold;
+#endif
+
+#ifdef USE_TEXTURE
+varying vec2 v_texcoord;
+#endif
+varying vec4 v_color;
+
+varying vec3 v_pos;
+
+uniform float u_time;
+
+
+
+
+
+#define RainColor vec3(0.4,0.6,1.25)
+
+
+#define IS_DAWN u_time >= 0.25 && u_time < 0.3
+#define IS_DUSK u_time >= 0.75 && u_time < 0.8
+
+vec3 aces(vec3 x) {
+  const float a = 2.51;
+  const float b = 0.03;
+  const float c = 2.43;
+  const float d = 0.59;
+  const float e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+
+float aces(float x) {
+  const float a = 2.51;
+  const float b = 0.03;
+  const float c = 2.43;
+  const float d = 0.59;
+  const float e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+
+
+
+
+
+void main()
+{
+	// Color
+	vec4 result = v_color;
+   
+   
+    result.a += u_time * 0.0001;
+   
+	// Texture
+#ifdef USE_TEXTURE
+	result *= texture2D(u_texture, v_texcoord);
+	
+#endif
+   
+	// Alpha threshold
+#ifdef USE_ALPHATHRESHOLD
+	if (result.a <= u_alphaThreshold)
+		discard;
+#endif
+    
+    
+    
+    
+	
+	
+	// On some devices using gl_FragColor in calculations causes a compile fail (Kindle Fire 1)
+	gl_FragColor = result;
+}
+
+#endif
